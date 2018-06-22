@@ -14,12 +14,10 @@ package object steganograph {
     private val secretBitCount = 1
     private val publicBitCount = bitsPerPixel - secretBitCount
 
-    private val secretBits = (0xFF00 >>> secretBitCount) & 0xFF
     private val publicBits = (0xFF << secretBitCount) & 0xFF
 
-    def crossover(pub: Int, sec: Int): Int = {
-        (pub & publicBits) | ((sec & secretBits) >>> publicBitCount)
-    }
+    def crossover(pub: Int, sec: Int): Int =
+        (pub & publicBits) | (sec >>> publicBitCount)
 
     def split(pixChan: Int): (Int, Int) = {
         val pub = pixChan & publicBits
