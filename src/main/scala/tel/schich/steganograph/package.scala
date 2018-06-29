@@ -10,16 +10,18 @@ import javax.imageio.ImageIO
 
 package object steganograph {
 
-    case class ARGB(a: Int, r: Int, g: Int, b: Int) {
-        def scale(w: Double) = ARGB((a * w).toInt, (r * w).toInt, (g * w).toInt, (b * w).toInt)
+    case class ARGB(a: Double, r: Double, g: Double, b: Double) {
+        def scale(w: Double) = ARGB(a * w, r * w, g * w, b * w)
         @inline
-        def * (w: Double) = scale(w)
+        def * (w: Double): ARGB = scale(w)
         @inline
-        def / (w: Double) = scale(1/w)
+        def / (w: Double): ARGB = scale(1/w)
 
-        def toARGB32 = composeChannels(a, r, g, b)
+        def add(other: ARGB): ARGB = ARGB.plus(this, other)
 
-        def toGray = {
+        def toARGB32: Int = composeChannels(a, r, g, b)
+
+        def toGray: ARGB = {
             val avg = (r + g + b) / 3
             ARGB(1, avg, avg, avg)
         }
@@ -28,24 +30,26 @@ package object steganograph {
 
         def componentMax(other: ARGB) = ARGB(math.max(a, other.a), math.max(r, other.r), math.max(g, other.g), math.max(b, other.b))
 
-        def lerp(min: ARGB, max: ARGB, range: Int): ARGB =
-            lerp(max - min, range)
+        def distanceSquared(other: ARGB): Double = a * other.a + r * other.r + g * other.g + b * other.b
 
-        def lerp(diff: ARGB, range: Int): ARGB = ARGB(
-            ((a.toDouble / diff.a.toDouble) * range.toDouble).toInt,
-            ((r.toDouble / diff.r.toDouble) * range.toDouble).toInt,
-            ((g.toDouble / diff.g.toDouble) * range.toDouble).toInt,
-            ((b.toDouble / diff.b.toDouble) * range.toDouble).toInt
+        def lerp(min: ARGB, max: ARGB): ARGB =
+            lerp(max - min)
+
+        def lerp(diff: ARGB): ARGB = ARGB(
+            a / diff.a,
+            r / diff.r,
+            g / diff.g,
+            b / diff.b
         )
     }
     implicit object ARGB extends Integral[ARGB] {
-        val A = ARGB(1, 0, 0, 0)
-        val R = ARGB(0, 1, 0, 0)
-        val RG = ARGB(0, 1, 1, 0)
-        val RB = ARGB(0, 1, 0, 1)
-        val G = ARGB(0, 0, 1, 0)
-        val GB = ARGB(0, 0, 1, 1)
-        val B = ARGB(0, 0, 0, 1)
+        val A: ARGB = ARGB(1, 0, 0, 0)
+        val R: ARGB = ARGB(0, 1, 0, 0)
+        val RG: ARGB = ARGB(0, 1, 1, 0)
+        val RB: ARGB = ARGB(0, 1, 0, 1)
+        val G: ARGB = ARGB(0, 0, 1, 0)
+        val GB: ARGB = ARGB(0, 0, 1, 1)
+        val B: ARGB = ARGB(0, 0, 0, 1)
 
         override def plus(x: ARGB, y: ARGB): ARGB = ARGB(x.a + y.a, x.r + y.r, x.g + y.g, x.b + y.b)
 
@@ -71,9 +75,14 @@ package object steganograph {
 
         override def compare(x: ARGB, y: ARGB): Int = x.toARGB32 - y.toARGB32
 
+        override def abs(x: ARGB): ARGB = ARGB(math.abs(x.a), math.abs(x.r), math.abs(x.g), math.abs(x.b))
+
         override val zero: ARGB = ARGB(0, 0, 0, 0)
 
         override val one: ARGB = ARGB(1, 1, 1, 1)
+
+        val MaxValue: ARGB = ARGB(Double.MaxValue, Double.MaxValue, Double.MaxValue, Double.MaxValue)
+        val MinValue: ARGB = ARGB(Double.MinValue, Double.MinValue, Double.MinValue, Double.MinValue)
     }
 
     val OutputFormat = "PNG"
@@ -84,8 +93,16 @@ package object steganograph {
 
     private val publicBits = (0xFF << secretBitCount) & 0xFF
 
+    def crossover(pub: Double, sec: Double): Double =
+        crossover((pub * 255.0).round.toInt, (sec * 255.0).round.toInt) / 255.0
+
     def crossover(pub: Int, sec: Int): Int =
         (pub & publicBits) | (sec >>> publicBitCount)
+
+    def split(pixChan: Double): (Double, Double) = {
+        val (l, r) = split((pixChan * 255).round.toInt)
+        (l / 255.0, r / 255.0)
+    }
 
     def split(pixChan: Int): (Int, Int) =
         (pixChan & publicBits, (pixChan << publicBitCount) & 0xFF)
@@ -102,7 +119,11 @@ package object steganograph {
 
 
     def extractChannels(argb: Int): ARGB =
-        ARGB((argb >>> 24) & 0xFF, (argb >>> 16) & 0xFF, (argb >>> 8) & 0xFF, argb & 0xFF)
+        ARGB(((argb >>> 24) & 0xFF) / 255.0, ((argb >>> 16) & 0xFF) / 255.0, ((argb >>> 8) & 0xFF) / 255.0, (argb & 0xFF) / 255.0)
+
+    def composeChannels(a: Double, r: Double, g: Double, b: Double): Int = {
+        composeChannels((a * 255.0).round.toInt, (r * 255.0).round.toInt, (g * 255.0).round.toInt, (b * 255.0).round.toInt)
+    }
 
     def composeChannels(a: Int, r: Int, g: Int, b: Int): Int =
         ((a & 0xFF) << 24) | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF)
