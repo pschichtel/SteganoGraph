@@ -6,7 +6,7 @@ object KernelConvolver {
 
     def main(args: Array[String]): Unit = {
         val kernels = args.drop(2).map(_.trim.toLowerCase).map {
-            case "dither" => dither(closest(Seq(ARGB.zero, ARGB.one))) _
+            case "dither" => dither(closest(Seq(ARGB.zero, ARGB.A, ARGB.R, ARGB.G, ARGB.B, ARGB.RG, ARGB.RB, ARGB.GB, ARGB.one))) _
             case "alpha" => channel(ARGB.A) _
             case "red" => channel(ARGB.R) _
             case "green" => channel(ARGB.G) _
@@ -75,18 +75,18 @@ object KernelConvolver {
         val width = img.getWidth
         val height = img.getHeight
         val pixels = (for {
-            x <- 0 until width
             y <- 0 until height
+            x <- 0 until width
         } yield extractChannels(img.getRGB(x, y))).toArray
 
         val processed = kernels.foldLeft(pixels)((pixels, filter) => filter(width, height, pixels))
 
         val output = new BufferedImage(width, height, img.getType)
         for {
-            imgX <- 0 until width
             imgY <- 0 until height
+            imgX <- 0 until width
         } {
-            output.setRGB(imgX, imgY, processed(imgX * height + imgY).toARGB32)
+            output.setRGB(imgX, imgY, processed(imgY * width + imgX).toARGB32)
         }
 
         writeImg(output, args(1))
@@ -112,7 +112,7 @@ object KernelConvolver {
             val i = idx(x, y)
             val pixel = out(i)
             val newPixel = mapColor(pixel)
-            val err = (newPixel - pixel).abs()
+            val err = pixel - newPixel
 
             out(i) = newPixel
             update(x + 1, y    , err * 7.0/16.0)
@@ -125,11 +125,7 @@ object KernelConvolver {
     }
 
     def closest(palette: Seq[ARGB])(search: ARGB): ARGB =
-        palette.minBy({a =>
-            val dist = a.distanceSquared(search)
-            println(s"$search in $palette -> $dist")
-            dist
-        })
+        palette.minBy(_.distanceSquared(search))
 
     def channel(c: ARGB)(width: Int, height: Int, pixels: Array[ARGB]): Array[ARGB] =
         pixels.map(_ * c)
@@ -138,10 +134,9 @@ object KernelConvolver {
         pixels.map(_.toGray)
 
     def kernel(kernel: Double*)(width: Int, height: Int, pixels: Array[ARGB]): Array[ARGB] =
-        apply(width, height, pixels, kernel.toArray)
+        applyKernel(width, height, pixels, kernel.toArray)
 
-    def apply(width: Int, height: Int, pixels: Array[ARGB], kernel: Array[Double]): Array[ARGB] = {
-        val kernelSum = kernel.sum
+    def applyKernel(width: Int, height: Int, pixels: Array[ARGB], kernel: Array[Double]): Array[ARGB] = {
         val kernelSize = math.sqrt(kernel.length).toInt
         val kernelRadius = kernelSize / 2 // integer division to round down
         val kernelOffsets = (for {
@@ -152,15 +147,15 @@ object KernelConvolver {
         }).toArray
 
         val processed = (for {
-            imgX <- 0 until width
             imgY <- 0 until height
+            imgX <- 0 until width
         } yield {
             (for ((w, x, y) <- kernelOffsets) yield {
                 val actualX = imgX + x
                 val actualY = imgY + y
 
                 if (actualX >= 0 && actualX < width && actualY >= 0 && actualY < height) {
-                    pixels(actualX * height + actualY) * w
+                    pixels(actualY * width + actualX) * w
                 } else ARGB.zero
             }).sum
         }).toArray

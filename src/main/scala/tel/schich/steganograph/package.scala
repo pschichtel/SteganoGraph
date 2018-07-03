@@ -30,7 +30,7 @@ package object steganograph {
 
         def componentMax(other: ARGB) = ARGB(math.max(a, other.a), math.max(r, other.r), math.max(g, other.g), math.max(b, other.b))
 
-        def distanceSquared(other: ARGB): Double = a * other.a + r * other.r + g * other.g + b * other.b
+        def distanceSquared(other: ARGB): Double = math.pow(a - other.a, 2) + math.pow(r - other.r, 2) + math.pow(g - other.g, 2) + math.pow(b - other.b, 2)
 
         def lerp(min: ARGB, max: ARGB): ARGB =
             lerp(max - min)
