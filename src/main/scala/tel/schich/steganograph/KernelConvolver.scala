@@ -5,7 +5,7 @@ import java.awt.image.BufferedImage
 object KernelConvolver {
 
     def main(args: Array[String]): Unit = {
-        val kernels = args.drop(2).map(_.trim.toLowerCase).map {
+        val filters: Array[(Int, Int, Array[ARGB]) => Array[ARGB]] = args.drop(2).map(_.trim.toLowerCase).map {
             case "dither" => dither(closest(Seq(ARGB.zero, ARGB.A, ARGB.R, ARGB.G, ARGB.B, ARGB.RG, ARGB.RB, ARGB.GB, ARGB.one))) _
             case "alpha" => channel(ARGB.A) _
             case "red" => channel(ARGB.R) _
@@ -14,7 +14,8 @@ object KernelConvolver {
             case "red_green" => channel(ARGB.RG) _
             case "red_blue" => channel(ARGB.RB) _
             case "green_blue" => channel(ARGB.GB) _
-            case "grayscale" => grayscale _
+            case "grayscale" => perPixel(grayscale) _
+            case "sepia" => perPixel(sepia) _
             case "identity" => kernel(
                 0, 0, 0,
                 0, 1, 0,
@@ -79,7 +80,7 @@ object KernelConvolver {
             x <- 0 until width
         } yield extractChannels(img.getRGB(x, y))).toArray
 
-        val processed = kernels.foldLeft(pixels)((pixels, filter) => filter(width, height, pixels))
+        val processed = filters.foldLeft(pixels)((pixels, filter) => filter(width, height, pixels))
 
         val output = new BufferedImage(width, height, img.getType)
         for {
@@ -91,6 +92,18 @@ object KernelConvolver {
 
         writeImg(output, args(1))
     }
+
+    def grayscale(p: ARGB): ARGB = p.toGray
+
+    def sepia(p: ARGB): ARGB = ARGB(
+        p.a,
+        math.min(1, (p.r * .393) + (p.g *.769) + (p.b * .189)),
+        math.min(1, (p.r * .349) + (p.g *.686) + (p.b * .168)),
+        math.min(1, (p.r * .272) + (p.g *.534) + (p.b * .131))
+    )
+
+    def perPixel(mapColor: ARGB => ARGB)(width: Int, height: Int, pixels: Array[ARGB]): Array[ARGB] =
+        pixels.map(mapColor)
 
     def dither(mapColor: ARGB => ARGB)(width: Int, height: Int, pixels: Array[ARGB]): Array[ARGB] = {
         val out = Array.ofDim[ARGB](pixels.length)
@@ -129,9 +142,6 @@ object KernelConvolver {
 
     def channel(c: ARGB)(width: Int, height: Int, pixels: Array[ARGB]): Array[ARGB] =
         pixels.map(_ * c)
-
-    def grayscale(width: Int, height: Int, pixels: Array[ARGB]): Array[ARGB] =
-        pixels.map(_.toGray)
 
     def kernel(kernel: Double*)(width: Int, height: Int, pixels: Array[ARGB]): Array[ARGB] =
         applyKernel(width, height, pixels, kernel.toArray)
