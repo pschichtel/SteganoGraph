@@ -19,7 +19,7 @@ package object steganograph {
         def magnitudeSquared: Double = a * a + r * r + g * g + b * b
         def distanceSquared(other: ARGB): Double = math.pow(a - other.a, 2) + math.pow(r - other.r, 2) + math.pow(g - other.g, 2) + math.pow(b - other.b, 2)
     }
-    implicit object ARGB extends Integral[ARGB] {
+    implicit object ARGB extends Fractional[ARGB] {
         val A: ARGB = ARGB(1, 0, 0, 0)
         val R: ARGB = ARGB(0, 1, 0, 0)
         val G: ARGB = ARGB(0, 0, 1, 0)
@@ -31,9 +31,7 @@ package object steganograph {
 
         override def times(x: ARGB, y: ARGB): ARGB = ARGB(x.a * y.a, x.r * y.r, x.g * y.g, x.b * y.b)
 
-        override def quot(x: ARGB, y: ARGB): ARGB = ARGB(x.a / y.a, x.r / y.r, x.g / y.g, x.b / y.b)
-
-        override def rem(x: ARGB, y: ARGB): ARGB = ARGB(x.a % y.a, x.r % y.r, x.g % y.g, x.b % y.b)
+        override def div(x: ARGB, y: ARGB): ARGB = ARGB(x.a / y.a, x.r / y.r, x.g / y.g, x.b / y.b)
 
         override def negate(x: ARGB): ARGB = ARGB(-x.a, -x.r, -x.g, -x.b)
 

@@ -3,6 +3,7 @@ package tel.schich.steganograph
 import java.awt.Color.HSBtoRGB
 import java.awt.image.BufferedImage
 
+import scala.annotation.tailrec
 import scala.math.Numeric.Implicits.infixNumericOps
 
 object KernelConvolver {
@@ -51,6 +52,7 @@ object KernelConvolver {
                 case "grayscale" => perPixel(grayscale)
                 case "sepia" => perPixel(sepia)
                 case "sobel" => sobel
+                case "hysteresis_sobel" => hysteresisSobel(0.005, 0.20)
                 case "identity" => kernel(
                     0, 0, 0,
                     0, 1, 0,
@@ -231,37 +233,134 @@ object KernelConvolver {
     def normalizeScale(pixels: Array[ARGB]): Array[ARGB] = {
         val min = pixels.foldLeft(ARGB.MaxValue)(_.componentMin(_))
         val max = pixels.foldLeft(ARGB.MinValue)(_.componentMax(_))
-        val diff = max - min
 
-        pixels.map(_ / diff)
+        pixels.map(p => scaleAtoB(p, min, max))
     }
 
-    def sobel(width: Int, height: Int, colorPixels: Array[ARGB], cont: Continuation): Array[ARGB] = {
+    def verticalSobel(pix: (Int, Int) => ARGB, x: Int, y: Int): Double = {
+        pix(x - 1, y - 1).r *  1 + pix(x, y - 1).r *  2 + pix(x + 1, y - 1).r *  1 +
+        pix(x - 1, y + 1).r * -1 + pix(x, y - 1).r * -2 + pix(x + 1, y + 1).r * -1
+    }
+
+    def horizontalSobel(pix: (Int, Int) => ARGB, x: Int, y: Int): Double = {
+        pix(x - 1, y - 1).r * -1 + pix(x + 1, y - 1).r * 1 +
+        pix(x - 1, y    ).r * -2 + pix(x + 1, y    ).r * 2 +
+        pix(x - 1, y + 1).r * -1 + pix(x + 1, y + 1).r * 1
+    }
+
+    def sobelValues(width: Int, height: Int, colorPixels: Array[ARGB], cont: Continuation): Array[(Double, Double)] = {
         val grayPixels = colorPixels.map(grayscale)
         val pix = pixel(grayPixels, cont, width, height) _
 
-        def vertical(x: Int, y: Int): Double = {
-            pix(x - 1, y - 1).r *  1 + pix(x, y - 1).r *  2 + pix(x + 1, y - 1).r *  1 +
-            pix(x - 1, y + 1).r * -1 + pix(x, y - 1).r * -2 + pix(x + 1, y + 1).r * -1
-        }
-
-        def horizontal(x: Int, y: Int): Double = {
-            pix(x - 1, y - 1).r * -1 + pix(x + 1, y - 1).r * 1 +
-            pix(x - 1, y    ).r * -2 + pix(x + 1, y    ).r * 2 +
-            pix(x - 1, y + 1).r * -1 + pix(x + 1, y + 1).r * 1
-        }
-
-        normalizeScale((for {
+        (for {
             y <- 0 until height
             x <- 0 until width
         } yield {
-            val gx = horizontal(x, y)
-            val gy = vertical(x, y)
+            val gx = horizontalSobel(pix, x, y)
+            val gy = verticalSobel(pix, x, y)
             val g = math.sqrt(gx * gx + gy * gy)
-            val angle = math.atan(gy/gx)
-            extractChannels(HSBtoRGB(math.toDegrees(angle).toFloat, 1, g.toFloat))
-        }).toArray)
+            val angle = math.atan2(gy, gx) + math.Pi
+            (g, angle)
+        }).toArray
+    }
 
+    def sobel(width: Int, height: Int, pixels: Array[ARGB], cont: Continuation): Array[ARGB] = {
+
+        val values = sobelValues(width, height, pixels, cont)
+        val newPixels = for ((g, angle) <- values) yield {
+            extractChannels(HSBtoRGB(math.toDegrees(angle).toFloat, 1, g.toFloat))
+        }
+        normalizeScale(newPixels)
+    }
+
+    def inBounds(x: Int, y: Int, width: Int, height: Int): Boolean = x >= 0 && x < width && y >= 0 && y < height
+
+    def hysteresisSobel(low: Double, high: Double)(width: Int, height: Int, pixels: Array[ARGB], cont: Continuation): Array[ARGB] = {
+        val values = sobelValues(width, height, pixels, cont)
+        val neighbors = Array(
+            ((-1, 0), (1, 0)),
+            ((-1, 1), (1, -1)),
+            ((0, -1), (0, 1)),
+            ((-1, -1), (1, 1))
+        )
+        val HighState = 2.toByte
+        val LowState = 1.toByte
+        val OffState = 0.toByte
+
+        def valAt(x: Int, y: Int): Double = {
+            if (inBounds(x, y, width, height)) values(y * width + x)._1
+            else Double.MinValue
+        }
+
+        @tailrec
+        def hysteresisThresholding(states: Array[Byte]): Array[Byte] = {
+
+            def isStrong(x: Int, y: Int): Boolean =
+                if (inBounds(x, y, width, height)) states(y * width + x) == HighState
+                else false
+
+
+            def hasHighNeighbor(x: Int, y: Int): Boolean =
+                neighbors.exists {
+                    case ((ax, ay), (bx, by)) => isStrong(x + ax, y + ay) || isStrong(x + bx, y + by)
+                }
+
+            val newStates = (for {
+                y <- 0 until height
+                x <- 0 until width
+            } yield {
+                states(y * width + x) match {
+                    case HighState => HighState
+                    case LowState if hasHighNeighbor(x, y) => HighState
+                    case LowState => LowState
+                    case OffState => OffState
+                }
+            }).toArray
+
+            if (newStates sameElements states) states
+            else hysteresisThresholding(newStates)
+        }
+
+        val localMaxima = (for {
+            y <- 0 until height
+            x <- 0 until width
+        } yield {
+            val (g, angle) = values(y * width + x)
+            val ((ax, ay), (bx, by)) = neighbors((((math.toDegrees(angle).toInt + 360) % 360) / (360 / 8)) % neighbors.length)
+
+            if (valAt(x + ax, y + ay) > g || valAt(x + bx, y + by) > g) 0
+            else g
+        }).toArray
+
+        val min = localMaxima.min
+        val max = localMaxima.max
+        val normalizedLocalMaxima = localMaxima.map(m => scaleAtoB(m, min, max))
+
+        val thresholdStates = normalizedLocalMaxima.map {
+            case n if n >= high => HighState
+            case n if n >= low && n < high => LowState
+            case _ => OffState
+        }
+
+        val finalStates = hysteresisThresholding(thresholdStates)
+
+        finalStates.map {
+            case HighState => ARGB.one
+            case _ => ARGB.zero
+        }
+
+
+    }
+
+    def scaleAtoB[T](valueA: T, minA: T, maxA: T)(implicit frac: Fractional[T]): T = {
+        scaleAtoB(valueA, minA, maxA, frac.zero, frac.one)(frac)
+    }
+
+    def scaleAtoB[T](valueA: T, minA: T, maxA: T, minB: T, maxB: T)(implicit frac: Fractional[T]): T = {
+        val rangeA = maxA - minA
+        val rangeB = maxB - minB
+        val valueB = (frac.div(valueA - minA, rangeA) * rangeB) + minB
+        valueB
     }
 
 }
