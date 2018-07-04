@@ -1,5 +1,6 @@
 package tel.schich.steganograph
 
+import java.awt.Color.HSBtoRGB
 import java.awt.image.BufferedImage
 
 import scala.math.Numeric.Implicits.infixNumericOps
@@ -49,6 +50,7 @@ object KernelConvolver {
                 case "green_blue" => perPixel(multiply(ARGB.G + ARGB.B))
                 case "grayscale" => perPixel(grayscale)
                 case "sepia" => perPixel(sepia)
+                case "sobel" => sobel
                 case "identity" => kernel(
                     0, 0, 0,
                     0, 1, 0,
@@ -196,6 +198,10 @@ object KernelConvolver {
     def kernel(kernel: Double*)(width: Int, height: Int, pixels: Array[ARGB], cont: Continuation): Array[ARGB] =
         applyKernel(width, height, pixels, cont, kernel.toArray)
 
+    def pixel(pixels: Array[ARGB], cont: Continuation, width: Int, height: Int)(x: Int, y: Int): ARGB =
+        if (x >= 0 && x < width && y >= 0 && y < height) pixels(y * width + x)
+        else cont(pixels, width, height, x, y)
+
     def applyKernel(width: Int, height: Int, pixels: Array[ARGB], cont: Continuation, kernel: Array[Double]): Array[ARGB] = {
         val kernelSize = math.sqrt(kernel.length).toInt
         val kernelRadius = kernelSize / 2 // integer division to round down
@@ -206,6 +212,7 @@ object KernelConvolver {
             (kernel(y * kernelSize + x), x - kernelRadius, y - kernelRadius)
         }).toArray
 
+        val pix = pixel(pixels, cont, width, height) _
         val processed = (for {
             imgY <- 0 until height
             imgX <- 0 until width
@@ -214,17 +221,47 @@ object KernelConvolver {
                 val actualX = imgX + x
                 val actualY = imgY + y
 
-                if (actualX >= 0 && actualX < width && actualY >= 0 && actualY < height) {
-                    pixels(actualY * width + actualX) * w
-                } else cont(pixels, width, height, actualX, actualY) * w
+                pix(actualX, actualY) * w
             }).sum
         }).toArray
 
-        val min = processed.foldLeft(ARGB.MaxValue)(_.componentMin(_))
-        val max = processed.foldLeft(ARGB.MinValue)(_.componentMax(_))
+        normalizeScale(processed)
+    }
+
+    def normalizeScale(pixels: Array[ARGB]): Array[ARGB] = {
+        val min = pixels.foldLeft(ARGB.MaxValue)(_.componentMin(_))
+        val max = pixels.foldLeft(ARGB.MinValue)(_.componentMax(_))
         val diff = max - min
 
-        processed.map(_ / diff)
+        pixels.map(_ / diff)
+    }
+
+    def sobel(width: Int, height: Int, colorPixels: Array[ARGB], cont: Continuation): Array[ARGB] = {
+        val grayPixels = colorPixels.map(grayscale)
+        val pix = pixel(grayPixels, cont, width, height) _
+
+        def vertical(x: Int, y: Int): Double = {
+            pix(x - 1, y - 1).r *  1 + pix(x, y - 1).r *  2 + pix(x + 1, y - 1).r *  1 +
+            pix(x - 1, y + 1).r * -1 + pix(x, y - 1).r * -2 + pix(x + 1, y + 1).r * -1
+        }
+
+        def horizontal(x: Int, y: Int): Double = {
+            pix(x - 1, y - 1).r * -1 + pix(x + 1, y - 1).r * 1 +
+            pix(x - 1, y    ).r * -2 + pix(x + 1, y    ).r * 2 +
+            pix(x - 1, y + 1).r * -1 + pix(x + 1, y + 1).r * 1
+        }
+
+        normalizeScale((for {
+            y <- 0 until height
+            x <- 0 until width
+        } yield {
+            val gx = horizontal(x, y)
+            val gy = vertical(x, y)
+            val g = math.sqrt(gx * gx + gy * gy)
+            val angle = math.atan(gy/gx)
+            extractChannels(HSBtoRGB(math.toDegrees(angle).toFloat, 1, g.toFloat))
+        }).toArray)
+
     }
 
 }
