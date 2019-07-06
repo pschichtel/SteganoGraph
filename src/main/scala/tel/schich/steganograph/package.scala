@@ -49,6 +49,8 @@ package object steganograph {
 
         override def abs(x: ARGB): ARGB = ARGB(math.abs(x.a), math.abs(x.r), math.abs(x.g), math.abs(x.b))
 
+        override def parseString(str: String): Option[ARGB] = None
+
         override val zero: ARGB = ARGB(0, 0, 0, 0)
 
         override val one: ARGB = ARGB(1, 1, 1, 1)

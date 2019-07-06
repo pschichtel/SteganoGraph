@@ -51,8 +51,9 @@ object KernelConvolver {
                 case "green_blue" => perPixel(multiply(ARGB.G + ARGB.B))
                 case "grayscale" => perPixel(grayscale)
                 case "sepia" => perPixel(sepia)
+                case "noalpha" => perPixel(a => ARGB(1, a.r, a.g, a.b))
                 case "sobel" => sobel
-                case "hysteresis_sobel" => hysteresisSobel(0.005, 0.20)
+                case "hysteresis_sobel" => hysteresisSobel(0.005, 0.2)
                 case "identity" => kernel(
                     0, 0, 0,
                     0, 1, 0,
@@ -107,14 +108,29 @@ object KernelConvolver {
                     -1, 5, -1,
                     0, -1, 0
                 )
-                case _ => throw new IllegalArgumentException("Meh!")
+                case "laplace" => kernel(
+                    0, -1, 0
+                    -1, 4, -1,
+                    0, -1, 0
+                )
+                case "laplace_diagonal" => kernel(
+                    -1, -1, -1
+                    -1, 8, -1,
+                    -1, -1, -1
+                )
+                case "laplace_diagonal5" => kernel(
+                    -1, -1, -1, -1, -1
+                    -1, -1, 24, -1, -1,
+                    -1, -1, -1, -1, -1
+                )
+                case _ => throw new IllegalArgumentException(s"Filter not found: $filterName")
             }
 
             val cont: Continuation = contName match {
                 case "ignore" => ignore
                 case "mirror" => mirror
                 case "extend" => extend
-                case _ => throw new IllegalArgumentException("Meh!")
+                case _ => throw new IllegalArgumentException(s"Continuation not found: $contName")
             }
 
             (filter, cont)
@@ -193,7 +209,7 @@ object KernelConvolver {
     }
 
     def closest(palette: Seq[ARGB])(search: ARGB): ARGB =
-        palette.minBy(_.distanceSquared(search))
+        palette.minBy(_.distanceSquared(search))(Ordering.Double.TotalOrdering)
 
     def multiply(c: ARGB)(p: ARGB): ARGB = p * c
 
@@ -317,6 +333,7 @@ object KernelConvolver {
                 }
             }).toArray
 
+            // newStates and states are not sorted, but order retaining, so sameElements is safe to use
             if (newStates sameElements states) states
             else hysteresisThresholding(newStates)
         }
@@ -332,8 +349,8 @@ object KernelConvolver {
             else g
         }).toArray
 
-        val min = localMaxima.min
-        val max = localMaxima.max
+        val min = localMaxima.min(Ordering.Double.TotalOrdering)
+        val max = localMaxima.max(Ordering.Double.TotalOrdering)
         val normalizedLocalMaxima = localMaxima.map(m => scaleAtoB(m, min, max))
 
         val thresholdStates = normalizedLocalMaxima.map {
